@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<title>Demo</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<link rel="stylesheet" href="css/base.css">
+</head>
+<body>
+
+
+<script src="build/three.min.js"></script>
+<script src="js/Detector.js"></script>
+<script src="js/Stats.js"></script>
+<script src="js/OrbitControls.js"></script>
+<script src="js/THREEx.KeyboardState.js"></script>
+<script src="js/THREEx.FullScreen.js"></script>
+<script src="js/THREEx.WindowResize.js"></script>
+<script src="OBJMTLLoader.js"></script>
+<script type="text/javascript" src="MTLLoader.js"></script>
+<script type="text/javascript" src="ColladaLoader.js"></script>
+
+<!-- Note the additional JS files! always need all of these for postprocessing. -->
+<script src="js/postprocessing/EffectComposer.js"></script>
+<script src="js/postprocessing/RenderPass.js"></script>
+<script src="js/postprocessing/ShaderPass.js"></script>
+<script src="js/postprocessing/MaskPass.js"></script>
+<script src="js/shaders/CopyShader.js"></script>
+<script src="js/Loader.js"></script>
+
+
+<!-- separate out the shaders specific to this demo -->
+<script src="js/shaders/AdditiveBlendShader.js"></script>
+
+
+<!-- ------ Custom Shader Code for atmospheric glow ------ -->
+<script id="vertexShaderAtmosphere" type="x-shader/x-vertex">
+varying vec3 vNormal;
+void main() 
+{
+    vNormal = normalize( normalMatrix * normal );
+    gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+}
+</script>
+
+<!-- fragment shader a.k.a. pixel shader -->
+<script id="fragmentShaderAtmosphere" type="x-shader/x-vertex"> 
+uniform float c;
+uniform float p;
+varying vec3 vNormal;
+void main() 
+{
+	float intensity = pow( c - dot( vNormal, vec3( 0.0, 0.0, 1.0 ) ), p ); 
+	gl_FragColor = vec4( 1.0, 1.0, 1.0, 1.0 ) * intensity;
+}
+</script>
+
+<!-- ----------------------------------------------------------- -->
+
+<!-- jQuery code to display an information button and box when clicked. -->
+
+
+<!-- ------------------------------------------------------------ -->
+<div id="head">
+<h1> Demo </h1>
+</div>
+
+<div id="container"></div>
+<script>
+/*
+	Three.js "tutorials by example"
+	Author: Lee Stemkoski
+	Date: July 2013 (three.js v58)
+*/
+
+
+// MAIN
+
+// standard global variables
+var container, scene, camera, renderer, controls, stats,composer2;
+var keyboard = new THREEx.KeyboardState();
+var clock = new THREE.Clock();
+// custom global variables
+var cube, floor;
+var dae, skin;
+var dae2;
+var loader = new THREE.ColladaLoader();
+			loader.options.convertUpAxis = true;
+			loader.load( 'models/chair/walnut.dae', function ( collada ) {
+
+				dae = collada.scene;
+				skin = collada.skins[ 0 ];
+
+				dae.scale.x = dae.scale.y = dae.scale.z = 4;
+
+				//dae.updateMatrix();
+				init();
+				animate();
+
+			} );
+
+loader.options.convertUpAxis = true;
+loader.load( 'models/iphone/IPhone4Gs _5.dae', function ( collada ) {
+
+	dae2 = collada.scene;
+	skin = collada.skins[ 0 ];
+
+	dae2.scale.x = dae2.scale.y = dae2.scale.z = 100;
+	//dae.updateMatrix();
+
+	animate();
+
+} );
+
+	
+
+// FUNCTIONS 		
+function init() 
+{
+	// SCENE
+	scene = new THREE.Scene();
+	// CAMERA
+	var SCREEN_WIDTH = window.innerWidth, SCREEN_HEIGHT = window.innerHeight;
+	var VIEW_ANGLE = 45, ASPECT = SCREEN_WIDTH / SCREEN_HEIGHT, NEAR = 0.1, FAR = 20000;
+	camera = new THREE.PerspectiveCamera( VIEW_ANGLE, ASPECT, NEAR, FAR);
+	scene.add(camera);
+	camera.position.set(0,200,400);
+	
+	// RENDERER
+	if ( Detector.webgl )
+		renderer = new THREE.WebGLRenderer( {antialias:true} );
+	else
+		renderer = new THREE.CanvasRenderer(); 
+	renderer.setSize(SCREEN_WIDTH/2, SCREEN_HEIGHT/2);
+	container = document.getElementById( 'container' );
+	container.appendChild( renderer.domElement );
+	// EVENTS
+	THREEx.WindowResize(renderer, camera);
+	THREEx.FullScreen.bindKey({ charCode : 'm'.charCodeAt(0) });
+	// CONTROLS
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
+	// STATS
+	/*stats = new Stats();
+	stats.domElement.style.position = 'absolute';
+	stats.domElement.style.bottom = '0px';
+	stats.domElement.style.zIndex = 100;
+	container.appendChild( stats.domElement );
+	*/
+	// LIGHT
+	var light = new THREE.PointLight(0xffff00,1,1000);
+	light.position.set(0,2000,0);
+	//scene.add(light);
+	
+	var imagePrefix = "images/nebula-";
+	var directions  = ["xpos", "xneg", "ypos", "yneg", "zpos", "zneg"];
+	var imageSuffix = ".png";
+	var skyGeometry = new THREE.BoxGeometry( 10000, 10000, 10000 );	
+	
+	var imageURLs = [];
+	for (var i = 0; i < 6; i++)
+		imageURLs.push( imagePrefix + directions[i] + imageSuffix );
+	var textureCube = THREE.ImageUtils.loadTextureCube( imageURLs );
+	var shader = THREE.ShaderLib[ "cube" ];
+	shader.uniforms[ "tCube" ].value = textureCube;
+	/*var skyMaterial = new THREE.ShaderMaterial( {
+		fragmentShader: shader.fragmentShader,
+		vertexShader: shader.vertexShader,
+		uniforms: shader.uniforms,
+		depthWrite: false,
+		side: THREE.BackSide
+	} );*/
+
+	var skyMaterial  = new THREE.MeshLambertMaterial( {color: 0xffffff, side: THREE.BackSide } );
+
+	var cubeGeom = new THREE.BoxGeometry( 100, 100, 100);
+	var material = new THREE.MeshBasicMaterial( {color: 0xffffff} );
+	var cubeBox = new THREE.Mesh( cubeGeom, material );
+	//scene.add(cubeBox);
+
+	var skyBox = new THREE.Mesh( skyGeometry, skyMaterial );
+
+	scene.add( skyBox );
+
+	////////////
+	// CUSTOM //
+	////////////
+	
+	// create custom material from the shader code above
+	//   that is within specially labeled script tags
+	
+	var customMaterialAtmosphere = new THREE.ShaderMaterial( 
+	{
+	    uniforms:       
+		{ 
+			"c":   { type: "f", value: 0.5 },
+			"p":   { type: "f", value: 4.0 }
+		},
+		vertexShader:   document.getElementById( 'vertexShaderAtmosphere'   ).textContent,
+		fragmentShader: document.getElementById( 'fragmentShaderAtmosphere' ).textContent
+	}   );
+
+	var sphereGeo = new THREE.SphereGeometry(100, 32, 16);
+    
+	var moonTexture = THREE.ImageUtils.loadTexture( 'images/moon.jpg' );
+	var moonMaterial = new THREE.MeshBasicMaterial( { map: moonTexture } );
+    var moon = new THREE.Mesh(sphereGeo, moonMaterial);
+  	 // scene.add(moon);
+
+  	 dae2.rotation.y = -Math.PI/2;
+  	 dae2.rotation.x = -Math.PI/2;
+  	 dae2.position.y = 90;
+  	 dae2.position.x = -80;
+  	 dae2.position.z = 120;
+  	 scene.add(dae2);
+  	 dae.position.y = 4;
+  	 dae.position.x = 100;
+  	 scene.add(dae);
+	camera.lookAt(dae.position);
+
+	var floorMaterial = new THREE.MeshLambertMaterial( { color: 0x444444, side: THREE.DoubleSide } );
+	var floorGeometry = new THREE.BoxGeometry(500, 500, 10, 10);
+	 floor = new THREE.Mesh(floorGeometry, floorMaterial);
+	 floor.rotation.x = Math.PI/2;
+	 floor.position.set(0,0,0);
+	 scene.add(floor);
+
+   	//laddar in modell
+
+   	
+	// create secondary scene to add atmosphere effect
+	var ambientLight = new THREE.AmbientLight(0xbbbbbb);
+
+
+	var directionalLight = new THREE.DirectionalLight( 0xbbbbbb );
+	    directionalLight.position.set( 100, 100, 100 ).normalize();
+	scene.add(directionalLight);
+	//scene.add(ambientLight);
+	atmosphereScene = new THREE.Scene();
+	
+	camera2 = new THREE.PerspectiveCamera(VIEW_ANGLE, ASPECT, NEAR, FAR);
+	camera2.position = camera.position;
+	camera2.rotation = camera.rotation;	
+	//dae.add( camera2 );
+	
+	
+
+	
+	////////////////////////////////////////////////////////////////////////
+	// final composer will blend composer2.render() results with the scene 
+	////////////////////////////////////////////////////////////////////////
+	
+	// prepare secondary composer
+	var renderTargetParameters = 
+		{ minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, 
+		  format: THREE.RGBFormat, stencilBuffer: false };
+	var renderTarget = new THREE.WebGLRenderTarget( SCREEN_WIDTH, SCREEN_HEIGHT, renderTargetParameters );
+	 composer2 = new THREE.EffectComposer( renderer, renderTarget );
+	
+	// prepare the secondary render's passes
+	var render2Pass = new THREE.RenderPass( atmosphereScene, camera2 );
+	composer2.addPass( render2Pass );
+	
+	// prepare final composer
+	finalComposer = new THREE.EffectComposer( renderer, renderTarget );
+
+	// prepare the final render's passes
+	var renderModel = new THREE.RenderPass( scene, camera );
+	finalComposer.addPass( renderModel );
+
+	var effectBlend = new THREE.ShaderPass( THREE.AdditiveBlendShader, "tDiffuse1" );
+	effectBlend.uniforms[ 'tDiffuse2' ].value = composer2.renderTarget2;
+	effectBlend.renderToScreen = true;
+	finalComposer.addPass( effectBlend );
+
+	/////////
+	// GUI //
+	/////////
+	
+	
+    renderer.autoClear = false;
+    renderer.setClearColor(0x000000, 0.0);
+}
+
+function animate() 
+{
+    requestAnimationFrame( animate );
+	render();		
+	update();
+}
+
+function update()
+{
+	if ( keyboard.pressed("z") ) 
+	{ 
+		// do something
+	}
+	
+	controls.update();
+	
+}
+
+function render() 
+{
+	composer2.render();
+	finalComposer.render();
+	renderer.render(scene, camera);
+}
+
+</script>
+
+
+</body>
+</html>
